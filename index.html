@@ -473,7 +473,8 @@
     }
 
     const ID_PLANILHA = '1rDqK6M7jGopEu1htqOZFRM0P_74yqLIjgY7bWOZEteg';
-    const URL_GVIZ = `https://docs.google.com/spreadsheets/d/${ID_PLANILHA}/gviz/tq?tqx=out:json`;
+    const NOME_ABA = 'testes';
+    const URL_GVIZ = `https://docs.google.com/spreadsheets/d/${ID_PLANILHA}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(NOME_ABA)}`;
 
     async function carregarDashboard() {
       const feedContainer = document.getElementById('feedRecente');
