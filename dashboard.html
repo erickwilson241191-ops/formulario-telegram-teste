@@ -8,6 +8,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Dashboard de Indicadores</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Chart.js para renderização de gráficos -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
     :root {
@@ -114,56 +116,34 @@
     }
 
     /* CARDS DE GRÁFICOS */
-    .chart-box {
+    .charts-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    /* LAYOUT LADO A LADO PARA OS GRÁFICOS DE ROSCA */
+    .doughnut-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .chart-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 20px;
       padding: 18px;
-      margin-bottom: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
     }
 
-    .chart-title {
+    .chart-card h4 {
+      margin: 0 0 14px 0;
       font-size: calc(14px * var(--font-scale));
       font-weight: 800;
-      margin-bottom: 14px;
+      text-align: center;
       color: var(--text-color);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .bar-group {
-      margin-bottom: 12px;
-    }
-
-    .bar-group:last-child {
-      margin-bottom: 0;
-    }
-
-    .bar-label {
-      font-size: calc(12px * var(--font-scale));
-      font-weight: 700;
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 4px;
-      color: var(--text-color);
-    }
-
-    .bar-bg {
-      background: var(--bg-color);
-      height: 12px;
-      border-radius: 6px;
-      overflow: hidden;
-      border: 1px solid var(--card-border);
-    }
-
-    .bar-fill {
-      background: var(--primary-color);
-      height: 100%;
-      width: 0%;
-      border-radius: 6px;
-      transition: width 0.8s cubic-bezier(0.1, 0.5, 0.1, 1);
     }
 
     #status-msg {
@@ -206,32 +186,42 @@
       </div>
     </div>
 
-    <!-- GRÁFICO 1: STATUS -->
-    <div class="chart-box">
-      <div class="chart-title">📌 Status das Solicitações</div>
-      <div id="chartStatus"></div>
-    </div>
+    <!-- ÁREA DOS GRÁFICOS CHART.JS -->
+    <div class="charts-wrapper">
+      
+      <!-- LINHA DOS GRÁFICOS DE ROSCA (LADO A LADO) -->
+      <div class="doughnut-row">
+        <div class="chart-card">
+          <h4>📌 Status das Solicitações</h4>
+          <canvas id="chartStatusCanvas" style="max-height: 220px;"></canvas>
+        </div>
 
-    <!-- GRÁFICO 2: CATEGORIA -->
-    <div class="chart-box">
-      <div class="chart-title">🏷️ Ocorrências por Categoria</div>
-      <div id="chartCategoria"></div>
-    </div>
+        <div class="chart-card">
+          <h4>🏷️ Distribuição por Categoria</h4>
+          <canvas id="chartCategoriasCanvas" style="max-height: 220px;"></canvas>
+        </div>
+      </div>
 
-    <!-- GRÁFICO 3: MÁQUINAS -->
-    <div class="chart-box">
-      <div class="chart-title">⚙️ Top Máquinas Críticas</div>
-      <div id="chartMaquinas"></div>
-    </div>
+      <!-- GRÁFICOS DE BARRAS (UM ABAIXO DO OUTRO) -->
+      <div class="chart-card">
+        <h4>🏭 Top 5 Máquinas com Ocorrências</h4>
+        <canvas id="chartMaquinasCanvas" style="max-height: 220px;"></canvas>
+      </div>
 
-    <!-- GRÁFICO 4: TÉCNICOS -->
-    <div class="chart-box">
-      <div class="chart-title">👨‍🔧 Atendimentos por Técnico</div>
-      <div id="chartTecnicos"></div>
+      <div class="chart-card">
+        <h4>👨‍🔧 Atendimentos por Técnico</h4>
+        <canvas id="chartTecnicosCanvas" style="max-height: 220px;"></canvas>
+      </div>
+      
     </div>
   </div>
 
   <script>
+    let chartStatusInst = null;
+    let chartCategoriasInst = null;
+    let chartMaquinasInst = null;
+    let chartTecnicosInst = null;
+
     function aplicarPreferencias() {
       const fontScale = localStorage.getItem('userFontScale') || 1;
       const theme = localStorage.getItem('userTheme') || 'light';
@@ -275,6 +265,7 @@
         const start = text.indexOf('{');
         const end = text.lastIndexOf('}') + 1;
         const json = JSON.parse(text.substring(start, end));
+        
         const rows = json.table.rows;
 
         if (!rows || rows.length === 0) {
@@ -295,13 +286,27 @@
 
         rows.forEach(r => {
           const c = r.c;
-          const tecnico = c && c[2] && c[2].v !== null ? String(c[2].v) : 'Não Informado';
-          const dataFim = c && c[3] && c[3].v !== null ? String(c[3].v) : '';
-          const maquina = c && c[4] && c[4].v !== null ? String(c[4].v) : (c && c[3] && c[3].v !== null ? String(c[3].v) : 'Indefinida');
-          const categoria = c && c[5] && c[5].v !== null ? String(c[5].v) : 'Geral';
-          const status = c && c[7] && c[7].v !== null ? String(c[7].v) : (c && c[6] && c[6].v !== null ? String(c[6].v) : 'Indefinido');
 
-          if (dataFim.trim() !== '') comDataFim++;
+          // Mapeamento baseado nas colunas reais da planilha:
+          // Coluna D (índice 3) = TÉCNICO
+          // Coluna E (índice 4) = MÁQUINA
+          // Coluna F (índice 5) = CATEGORIA
+          // Coluna H (índice 7) = STATUS
+          // Coluna C (índice 2) = DATA FIM
+          
+          const rawTecnico = c && c[3] ? (c[3].v !== null ? c[3].v : c[3].f) : null;
+          const rawDataFim = c && c[2] ? (c[2].v !== null ? c[2].v : c[2].f) : null;
+          const rawMaquina = c && c[4] && c[4].v !== null ? c[4].v : null;
+          const rawCategoria = c && c[5] && c[5].v !== null ? c[5].v : null;
+          const rawStatus = c && c[7] && c[7].v !== null ? c[7].v : null;
+
+          const tecnico = rawTecnico ? String(rawTecnico).trim() : 'Não Informado';
+          const dataFim = rawDataFim ? String(rawDataFim).trim() : '';
+          const maquina = rawMaquina ? String(rawMaquina).trim() : 'Indefinida';
+          const categoria = rawCategoria ? String(rawCategoria).trim() : 'Geral';
+          const status = rawStatus ? String(rawStatus).trim() : 'Indefinido';
+
+          if (dataFim !== '') comDataFim++;
 
           if (status.includes('Aberto')) abertas++;
           else if (status.includes('Andamento')) andamento++;
@@ -319,11 +324,11 @@
         document.getElementById('totalConcluidas').innerText = concluidas;
         document.getElementById('totalComDataFim').innerText = comDataFim;
 
-        // Renderização dos gráficos
-        renderBarChart('chartStatus', statusCount, total, true);
-        renderBarChart('chartCategoria', categoriaCount, total);
-        renderBarChart('chartMaquinas', ordenarEFiltrarTop(maquinasCount, 5), total);
-        renderBarChart('chartTecnicos', ordenarEFiltrarTop(tecnicosCount, 5), total);
+        // Gerar gráficos com Chart.js
+        gerarGraficoStatus(statusCount);
+        gerarGraficoCategorias(categoriaCount);
+        gerarGraficoMaquinas(maquinasCount);
+        gerarGraficoTecnicos(tecnicosCount);
 
         statusMsg.style.display = 'none';
         content.style.display = 'block';
@@ -334,43 +339,107 @@
       }
     }
 
-    function ordenarEFiltrarTop(obj, limite) {
-      const ordenado = {};
-      Object.keys(obj)
-        .sort((a, b) => obj[b] - obj[a])
-        .slice(0, limite)
-        .forEach(key => {
-          ordenado[key] = obj[key];
-        });
-      return ordenado;
+    // --- FUNÇÕES DE CRIAÇÃO DE GRÁFICOS (CHART.JS) ---
+
+    function gerarGraficoStatus(dataMap) {
+      const ctx = document.getElementById('chartStatusCanvas').getContext('2d');
+      if (chartStatusInst) chartStatusInst.destroy();
+
+      const labels = Object.keys(dataMap);
+      const values = Object.values(dataMap);
+      const colors = labels.map(lbl => {
+        if (lbl.includes('Aberto')) return '#ff3b30';
+        if (lbl.includes('Andamento')) return '#ff9500';
+        if (lbl.includes('Concluído')) return '#34c759';
+        return '#0088cc';
+      });
+
+      chartStatusInst = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: values,
+            backgroundColor: colors
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
     }
 
-    function renderBarChart(elementId, dataObj, total, aplicarCoresStatus = false) {
-      const container = document.getElementById(elementId);
-      container.innerHTML = '';
+    function gerarGraficoCategorias(dataMap) {
+      const ctx = document.getElementById('chartCategoriasCanvas').getContext('2d');
+      if (chartCategoriasInst) chartCategoriasInst.destroy();
 
-      Object.keys(dataObj).forEach(key => {
-        const val = dataObj[key];
-        const pct = total > 0 ? Math.round((val / total) * 100) : 0;
-        
-        let colorStyle = '';
-        if (aplicarCoresStatus) {
-          if (key.includes('Aberto')) colorStyle = 'background-color: var(--danger);';
-          else if (key.includes('Andamento')) colorStyle = 'background-color: var(--warning);';
-          else if (key.includes('Concluído')) colorStyle = 'background-color: var(--success);';
+      chartCategoriasInst = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: Object.keys(dataMap),
+          datasets: [{
+            data: Object.values(dataMap),
+            backgroundColor: ['#ff3b30', '#34c759', '#ff9500', '#9b59b6', '#3498db', '#e67e22']
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } }
         }
+      });
+    }
 
-        container.innerHTML += `
-          <div class="bar-group">
-            <div class="bar-label">
-              <span>${key}</span> 
-              <span>${val} (${pct}%)</span>
-            </div>
-            <div class="bar-bg">
-              <div class="bar-fill" style="width: ${pct}%; ${colorStyle}"></div>
-            </div>
-          </div>
-        `;
+    function gerarGraficoMaquinas(dataMap) {
+      const ctx = document.getElementById('chartMaquinasCanvas').getContext('2d');
+      const sorted = Object.entries(dataMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      
+      if (chartMaquinasInst) chartMaquinasInst.destroy();
+
+      chartMaquinasInst = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sorted.map(i => i[0]),
+          datasets: [{
+            label: 'Ocorrências',
+            data: sorted.map(i => i[1]),
+            backgroundColor: '#0088cc',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+    }
+
+    function gerarGraficoTecnicos(dataMap) {
+      const ctx = document.getElementById('chartTecnicosCanvas').getContext('2d');
+      const sorted = Object.entries(dataMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+      if (chartTecnicosInst) chartTecnicosInst.destroy();
+
+      chartTecnicosInst = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sorted.map(i => i[0]),
+          datasets: [{
+            label: 'Atendimentos',
+            data: sorted.map(i => i[1]),
+            backgroundColor: '#34c759',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
       });
     }
 
