@@ -122,15 +122,15 @@
     /* CARDS DE INDICADORES (KPIs) */
     .kpi-container {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 10px;
-      margin-bottom: 24px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 20px;
     }
 
     .kpi-card {
       background: var(--card-bg);
-      border-radius: 18px;
-      padding: 16px 8px;
+      border-radius: 16px;
+      padding: 12px 6px;
       text-align: center;
       border: 1px solid var(--card-border);
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
@@ -143,17 +143,40 @@
     }
 
     .kpi-value {
-      font-size: calc(24px * var(--font-scale));
+      font-size: calc(18px * var(--font-scale));
       font-weight: 800;
       line-height: 1.2;
       margin-bottom: 4px;
     }
 
     .kpi-label {
-      font-size: calc(11px * var(--font-scale));
+      font-size: calc(10px * var(--font-scale));
       text-transform: uppercase;
       font-weight: 700;
       color: var(--text-muted);
+    }
+
+    /* ÁREA DOS GRÁFICOS */
+    .charts-wrapper {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .chart-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 14px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+
+    .chart-card h4 {
+      margin: 0 0 10px 0;
+      font-size: calc(13px * var(--font-scale));
+      text-align: center;
+      color: var(--text-color);
     }
 
     /* GRID DE NAVEGAÇÃO */
@@ -326,6 +349,22 @@
       <div class="kpi-value" id="kpiConcluidos" style="color: var(--success);">-</div>
       <div class="kpi-label">Concluídos 🟢</div>
     </div>
+    <div class="kpi-card">
+      <div class="kpi-value" id="kpiMTTR" style="color: var(--primary-color);">-</div>
+      <div class="kpi-label">MTTR ⏱️</div>
+    </div>
+  </div>
+
+  <!-- GRÁFICOS VISUAIS -->
+  <div class="charts-wrapper">
+    <div class="chart-card">
+      <h4>🏭 Top 5 Máquinas com Ocorrências</h4>
+      <canvas id="chartMaquinas" style="max-height: 180px;"></canvas>
+    </div>
+    <div class="chart-card">
+      <h4>🏷️ Distribuição por Categoria</h4>
+      <canvas id="chartCategorias" style="max-height: 180px;"></canvas>
+    </div>
   </div>
 
   <!-- MENUS DE AÇÃO -->
@@ -374,6 +413,9 @@
   <script>
     const tg = window.Telegram?.WebApp;
     if (tg) { tg.expand(); }
+
+    let chartMaquinasInstance = null;
+    let chartCategoriasInstance = null;
 
     function aplicarPreferencias() {
       const fontScale = localStorage.getItem('userFontScale') || 1;
@@ -478,6 +520,24 @@
     const NOME_ABA = 'testes';
     const URL_GVIZ = `https://docs.google.com/spreadsheets/d/${ID_PLANILHA}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(NOME_ABA)}`;
 
+    // Função para converter strings de data "DD/MM/YYYY HH:MM" ou datas do GViz em objeto Date
+    function parseDataBr(val) {
+      if (!val) return null;
+      if (typeof val === 'string' && val.startsWith('Date(')) {
+        const parts = val.replace('Date(', '').replace(')', '').split(',');
+        return new Date(parts[0], parts[1], parts[2], parts[3]||0, parts[4]||0);
+      }
+      try {
+        const strData = String(val).trim();
+        const [data, hora] = strData.split(' ');
+        const [dia, mes, ano] = data.split('/');
+        const [hrs, mins] = hora ? hora.split(':') : [0, 0];
+        return new Date(ano, mes - 1, dia, hrs, mins);
+      } catch (e) {
+        return null;
+      }
+    }
+
     async function carregarDashboard() {
       const feedContainer = document.getElementById('feedRecente');
       try {
@@ -496,39 +556,66 @@
         }
 
         let abertos = 0, andamento = 0, concluidos = 0;
+        let totalMinutos = 0, qtdComTempo = 0;
+        let maquinasCount = {};
+        let categoriasCount = {};
 
-        // Mapeamento correto das colunas no Google Sheets / GViz:
-        // Coluna A (0): ID
-        // Coluna B (1): Data Início
-        // Coluna C (2): Técnico
-        // Coluna D (3): Data Fim
-        // Coluna E (4): Máquina
-        // Coluna F (5): Categoria
-        // Coluna G (6): Descrição
-        // Coluna H (7): Status
         const ocorrencias = rows.map(r => {
           const c = r.c;
           const status = c && c[7] && c[7].v !== null ? String(c[7].v) : '';
-          
+          const maquina = c && c[4] && c[4].v !== null ? String(c[4].v) : 'Geral';
+          const categoria = c && c[5] && c[5].v !== null ? String(c[5].v) : 'Outros';
+
+          // Contagens de KPIs de Status
           if (status.includes('Aberto')) abertos++;
           else if (status.includes('Andamento')) andamento++;
           else if (status.includes('Concluído')) concluidos++;
 
+          // Mapeamentos para Gráficos
+          maquinasCount[maquina] = (maquinasCount[maquina] || 0) + 1;
+          categoriasCount[categoria] = (categoriasCount[categoria] || 0) + 1;
+
+          // Cálculo do MTTR
+          const dInic = c && c[1] ? parseDataBr(c[1].v || c[1].f) : null;
+          const dFim = c && c[3] ? parseDataBr(c[3].v || c[3].f) : null;
+
+          if (dInic && dFim && dFim > dInic) {
+            const diffMin = (dFim - dInic) / (1000 * 60);
+            totalMinutos += diffMin;
+            qtdComTempo++;
+          }
+
           return {
             id: c && c[0] && c[0].v !== null ? c[0].v : '',
-            dataInicio: c && c[1] && c[1].v !== null ? String(c[1].v) : '—',
+            dataInicio: c && c[1] && (c[1].f || c[1].v) ? String(c[1].f || c[1].v) : '—',
             tecnico: c && c[2] && c[2].v !== null ? String(c[2].v) : 'Não informado',
-            maquina: c && c[4] && c[4].v !== null ? String(c[4].v) : 'Geral',
+            maquina: maquina,
+            categoria: categoria,
             descricao: c && c[6] && c[6].v !== null ? String(c[6].v) : 'Sem Descrição',
             status: status || 'Sem Status'
           };
         });
 
+        // Atualiza os Cards dos KPIs
         document.getElementById('kpiAbertos').innerText = abertos;
         document.getElementById('kpiAndamento').innerText = andamento;
         document.getElementById('kpiConcluidos').innerText = concluidos;
 
-        const ultimas = ocorrencias.reverse().slice(0, 10);
+        if (qtdComTempo > 0) {
+          const mttrMedio = totalMinutos / qtdComTempo;
+          const h = Math.floor(mttrMedio / 60);
+          const m = Math.round(mttrMedio % 60);
+          document.getElementById('kpiMTTR').innerText = `${h}h${m}m`;
+        } else {
+          document.getElementById('kpiMTTR').innerText = 'N/A';
+        }
+
+        // Renderiza Gráficos
+        gerarGraficoMaquinas(maquinasCount);
+        gerarGraficoCategorias(categoriasCount);
+
+        // Renderiza Últimos Lançamentos (Feed)
+        const ultimas = [...ocorrencias].reverse().slice(0, 10);
         if (feedContainer) {
           feedContainer.innerHTML = '';
           ultimas.forEach(item => {
@@ -552,9 +639,56 @@
       } catch (error) {
         console.error('Erro ao carregar dados:', error);
         if (feedContainer) {
-          feedContainer.innerHTML = '<div style="text-align:center; padding:15px; color:var(--danger);">⚠️ Erro ao carregar últimos lançamentos.</div>';
+          feedContainer.innerHTML = '<div style="text-align:center; padding:15px; color:var(--danger);">⚠️ Erro ao carregar lançamentos.</div>';
         }
       }
+    }
+
+    function gerarGraficoMaquinas(dataMap) {
+      const ctx = document.getElementById('chartMaquinas').getContext('2d');
+      const sorted = Object.entries(dataMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const labels = sorted.map(i => i[0]);
+      const values = sorted.map(i => i[1]);
+
+      if (chartMaquinasInstance) chartMaquinasInstance.destroy();
+
+      chartMaquinasInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Ocorrências',
+            data: values,
+            backgroundColor: '#0088cc',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+    }
+
+    function gerarGraficoCategorias(dataMap) {
+      const ctx = document.getElementById('chartCategorias').getContext('2d');
+      if (chartCategoriasInstance) chartCategoriasInstance.destroy();
+
+      chartCategoriasInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: Object.keys(dataMap),
+          datasets: [{
+            data: Object.values(dataMap),
+            backgroundColor: ['#ff3b30', '#34c759', '#ff9500', '#9b59b6', '#3498db']
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
     }
 
     aplicarPreferencias();
