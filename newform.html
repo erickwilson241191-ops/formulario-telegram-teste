@@ -98,7 +98,6 @@
       margin-bottom: 0;
     }
 
-    /* CORREÇÃO PARA A DATA NÃO VAZAR NA TELA EM DISPOSITIVOS MÓVEIS */
     .form-row {
       display: flex;
       flex-direction: column;
@@ -477,7 +476,7 @@
         <textarea id="descricao" placeholder="Descreva os detalhes aqui..." required></textarea>
       </div>
 
-      <!-- BOTÃO ÚNICO DE MÍDIA (FOTO/VÍDEO DA GALERIA OU CÂMERA DA HORA) -->
+      <!-- BOTÃO ÚNICO DE MÍDIA -->
       <div class="form-group">
         <label>📷 Mídia / Anexo (Opcional)</label>
         
@@ -635,7 +634,6 @@
         const json = JSON.parse(text.substring(47, text.length - 2));
         const rows = json.table.rows;
 
-        // Mapeamento correto de colunas
         const historico = rows
           .map(r => ({ maquina: r.c[4]?.v, desc: r.c[6]?.v, status: r.c[7]?.v }))
           .filter(r => r.maquina === maquina && r.status && String(r.status).includes('Concluído'));
@@ -718,22 +716,36 @@
 
       btn.innerText = '⏳ Gravando ocorrência...';
 
-      // Formatação da data de término
+      // Captura e formatação da data de início manual
+      const rawDataInicio = document.getElementById('dataInicio').value;
+      let dataInicioFormatada = "";
+      if (rawDataInicio) {
+        const dIni = new Date(rawDataInicio);
+        const dia = String(dIni.getDate()).padStart(2, '0');
+        const mes = String(dIni.getMonth() + 1).padStart(2, '0');
+        const ano = dIni.getFullYear();
+        const horas = String(dIni.getHours()).padStart(2, '0');
+        const minutos = String(dIni.getMinutes()).padStart(2, '0');
+        dataInicioFormatada = `${dia}/${mes}/${ano} ${horas}:${minutos}`;
+      }
+
+      // Captura e formatação da data de término (ou "Em Aberto")
       const rawDataFim = document.getElementById('dataFim').value;
-      let dataFimFormatada = "";
+      let dataFimFormatada = "Em Aberto";
       if (rawDataFim) {
-        const d = new Date(rawDataFim);
-        const dia = String(d.getDate()).padStart(2, '0');
-        const mes = String(d.getMonth() + 1).padStart(2, '0');
-        const ano = d.getFullYear();
-        const horas = String(d.getHours()).padStart(2, '0');
-        const minutos = String(d.getMinutes()).padStart(2, '0');
+        const dFim = new Date(rawDataFim);
+        const dia = String(dFim.getDate()).padStart(2, '0');
+        const mes = String(dFim.getMonth() + 1).padStart(2, '0');
+        const ano = dFim.getFullYear();
+        const horas = String(dFim.getHours()).padStart(2, '0');
+        const minutos = String(dFim.getMinutes()).padStart(2, '0');
         dataFimFormatada = `${dia}/${mes}/${ano} ${horas}:${minutos}`;
       }
 
       const dados = {
         acao: 'CRIAR_OCORRENCIA',
         tecnico: document.getElementById('tecnico').value,
+        dataInicio: dataInicioFormatada,
         dataFim: dataFimFormatada,
         maquina: document.getElementById('maquina').value,
         categoria: document.getElementById('categoria').value,
